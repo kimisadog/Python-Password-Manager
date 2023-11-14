@@ -2,12 +2,14 @@ from tkinter import *
 from tkinter.ttk import Progressbar, Style, Treeview, Scrollbar, Button
 import sqlite3
 import hashlib
-from ttkthemes import ThemedTk
 from tkinter import simpledialog
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, StringVar, scrolledtext, Text
+import webbrowser
+import requests
+import feedparser  # Import the feedparser library
 
 # Create the main window screen
-window = ThemedTk(theme="plastik")
+window = Tk()
 window.title("Password Manager")
 
 # Global variables
@@ -39,21 +41,31 @@ def popUp(title, text, initial_text=""):
     answer = simpledialog.askstring(title, text, initialvalue=initial_text)
     return answer
 
-# Function to check password strength
+def is_password_common(password):
+    # Hash the password using SHA-1
+    hashed_password = hashlib.sha1(password.encode()).hexdigest().upper()
+
+    # Use the HIBP API to check if the password has been pwned
+    response = requests.get(f'https://api.pwnedpasswords.com/range/{hashed_password[:5]}')
+    suffixes = [line.split(':')[0] for line in response.text.splitlines()]
+
+    return hashed_password[5:] in suffixes
+
 def check_password_strength(password):
     if len(password) < 7:
         return "Weak"
-    
+
     symbol_count = sum(1 for char in password if not char.isalnum())
-    
-    if symbol_count > 1:
+    digit_count = sum(1 for char in password if char.isdigit())
+    upper_count = sum(1 for char in password if char.isupper())
+
+    if len(password) > 12:
         return "Strong"
-    elif symbol_count == 1:
-        return "Medium"
-    
-    if any(char.islower() for char in password) and any(char.isupper() for char in password) and any(char.isdigit() for char in password):
+    elif is_password_common(password):
+        return "Weak"  # Password is part of a common dictionary
+    elif symbol_count >= 2 and digit_count >= 1 and upper_count >= 1:
         return "Strong"
-    elif any(char.islower() for char in password) or any(char.isupper() for char in password) or any(char.isdigit() for char in password):
+    elif len(password) >= 7 and symbol_count >= 1 and (digit_count >= 1 or upper_count >= 1):
         return "Medium"
     else:
         return "Weak"
@@ -99,7 +111,7 @@ def save_password():
         strength = check_password_strength(password1)
 
         # Check if password meets criteria
-        if len(password1) >= 7 and any(char.isupper() for char in password1) and any(not char.isalnum() for char in password1):
+        if strength != "Weak":
             hashed_password = hashlib.sha256(password1.encode("utf-8")).hexdigest()
 
             insert_password = """INSERT INTO masterpassword(password)
@@ -113,10 +125,12 @@ def save_password():
             error_message = "Password must meet the following criteria:\n" \
                              "- Be at least 7 characters long\n" \
                              "- Contain at least 1 upper case character\n" \
-                             "- Contain at least 1 symbol"
+                             "- Contain at least 1 symbol\n" \
+                             "- Password must not be a commonly used word"
             label3.config(text=error_message)
     else:
         label3.config(text="Passwords do not match")
+
 
 # Function to check the master password
 def get_master_password():
@@ -170,8 +184,6 @@ def initial_use():
     # Bind the update_strength function to the password entry & repeat entry
     txtBox.bind('<KeyRelease>', lambda event, progress=progress: update_strength(canvas, strength_var, txtBox.get(), progress))
     txtBox1.bind('<KeyRelease>', lambda event, progress=progress: update_strength(canvas, strength_var, txtBox1.get(), progress))
-
-
 
     button = Button(window, text="Save", command=save_password)
     button.pack()
@@ -241,19 +253,27 @@ def password_vault():
 
     window.geometry("800x600")
 
-    btn = Button(window, text="Add Account", command=add_entry)
+    # Create a notebook (tabs)
+    notebook = ttk.Notebook(window)
+    notebook.grid(row=0, column=0, columnspan=7, pady=10)
+
+    # First tab - Password Vault
+    password_tab = ttk.Frame(notebook)
+    notebook.add(password_tab, text='Password Vault')
+
+    btn = Button(password_tab, text="Add Account", command=add_entry)
     btn.grid(row=1, column=0, pady=10, padx=(10, 0))
 
-    label7 = Label(window, text="Password Vault", anchor=CENTER, font=('Arial', 16))
+    label7 = Label(password_tab, text="Password Vault", anchor='center', font=('Arial', 16))
     label7.grid(row=0, column=0, columnspan=7, pady=10)
 
     # Headings for each column
-    Label(window, text="Website", font=('Arial', 12, "bold")).grid(row=2, column=0, pady=5, padx=45)
-    Label(window, text="User Name", font=('Arial', 12, "bold")).grid(row=2, column=1, pady=5, padx=45)
-    Label(window, text="Password", font=('Arial', 12, "bold")).grid(row=2, column=2, pady=5, padx=45)
-    Label(window, text="Password Strength", font=('Arial', 12, "bold")).grid(row=2, column=3, pady=5, padx=45)
-    Label(window, text="Progress", font=('Arial', 12, "bold")).grid(row=2, column=4, pady=5, padx=45)
-    Label(window, text="Actions", font=('Arial', 12, "bold")).grid(row=2, column=5, pady=5, padx=45)
+    Label(password_tab, text="Website", font=('Arial', 12, "bold")).grid(row=2, column=0, pady=5, padx=45)
+    Label(password_tab, text="User Name", font=('Arial', 12, "bold")).grid(row=2, column=1, pady=5, padx=45)
+    Label(password_tab, text="Password", font=('Arial', 12, "bold")).grid(row=2, column=2, pady=5, padx=45)
+    Label(password_tab, text="Password Strength", font=('Arial', 12, "bold")).grid(row=2, column=3, pady=5, padx=45)
+    Label(password_tab, text="Progress", font=('Arial', 12, "bold")).grid(row=2, column=4, pady=5, padx=45)
+    Label(password_tab, text="Actions", font=('Arial', 12, "bold")).grid(row=2, column=5, pady=5, padx=45)
 
     # Display entries in columns
     cursor.execute("SELECT * FROM passwordvault")
@@ -261,23 +281,22 @@ def password_vault():
 
     if array:
         for row_index, row in enumerate(array):
-            Label(window, text=row[1], font=('Arial', 12, "bold")).grid(row=row_index + 3, column=0, pady=10, padx=45)
-            Label(window, text=row[2], font=('Arial', 12, "bold")).grid(row=row_index + 3, column=1, pady=10, padx=45)
-            password_label = Label(window, text=row[3], font=('Arial', 12, "bold"))
+            Label(password_tab, text=row[1], font=('Arial', 12, "bold")).grid(row=row_index + 3, column=0, pady=10, padx=45)
+            Label(password_tab, text=row[2], font=('Arial', 12, "bold")).grid(row=row_index + 3, column=1, pady=10, padx=45)
+            password_label = Label(password_tab, text=row[3], font=('Arial', 12, "bold"))
             password_label.grid(row=row_index + 3, column=2, pady=10, padx=45)
 
             # Display password strength for each password
             strength_var = StringVar()
             strength_var.set("Password Strength: " + check_password_strength(row[3]))
-            Label(window, textvariable=strength_var, font=('Arial', 12, "bold")).grid(row=row_index + 3, column=3, pady=10, padx=45)
+            Label(password_tab, textvariable=strength_var, font=('Arial', 12, "bold")).grid(row=row_index + 3, column=3, pady=10, padx=45)
 
             # Create a new canvas for each entry
-            progress_canvas = Canvas(window, width=70, height=10)
+            progress_canvas = Canvas(password_tab, width=70, height=10)
             progress_canvas.grid(row=row_index + 3, column=4, pady=5, padx=5)
 
             # Create a custom progress bar using a rectangle on the canvas
             progress = {"value": 0, "bar": progress_canvas.create_rectangle(0, 0, 0, 10, fill="green")}
-
             password_strength = check_password_strength(row[3])
 
             if password_strength == "Weak":
@@ -294,19 +313,165 @@ def password_vault():
             progress_canvas.coords(progress["bar"], 0, 0, progress_length, 10)
 
             # Add Delete button for each entry with confirmation
-            btn_delete = Button(window, text="Delete", command=lambda r=row[0]: remove_entry_confirmation(r))
+            btn_delete = Button(password_tab, text="Delete", command=lambda r=row[0]: remove_entry_confirmation(r))
             btn_delete.grid(row=row_index + 3, column=5, pady=10, padx=5)
 
             # Add Edit button for each entry
-            btn_edit = Button(window, text="Edit", command=lambda r=row[0]: edit_entry(r))
+            btn_edit = Button(password_tab, text="Edit", command=lambda r=row[0]: edit_entry(r))
             btn_edit.grid(row=row_index + 3, column=6, pady=10, padx=5)
 
-# Initialise the application
+    # Second tab - Text Entry
+    text_entry_tab = ttk.Frame(notebook)
+    notebook.add(text_entry_tab, text='Check your Passwords')
+
+    # Add message label
+    message_label = Label(text_entry_tab, text="Check if your password has been detected in a breach", font=('Arial', 14, 'bold'))
+    message_label.grid(row=0, column=0, columnspan=2, pady=(10, 5), padx=(10, 0))
+
+    # Add sub-heading label
+    sub_heading_label = Label(text_entry_tab, text="This feature is powered by the 'Have I Been Pwned' free API", font=('Arial', 10))
+    sub_heading_label.grid(row=1, column=0, columnspan=2, pady=(0, 10), padx=(10, 0))
+
+    # Add text entry box, label, and confirm button
+    entry_text = Entry(text_entry_tab, width=30)
+    entry_text.grid(row=2, column=0, pady=10, padx=(10, 0))
+
+    # Create a label for breach information or safety status
+    status_label = Label(text_entry_tab, text="", foreground="red")  # You can change the foreground color
+    status_label.grid(row=3, column=0, pady=5, padx=(10, 0), columnspan=2)
+
+    def check_and_display_text_entry_status():
+        entered_text = entry_text.get()
+
+        # Hash the entered text using SHA-1
+        hashed_text = hashlib.sha1(entered_text.encode()).hexdigest().upper()
+
+        # Take the first 5 characters of the hashed text (the prefix)
+        prefix = hashed_text[:5]
+
+        # Take the remaining characters of the hashed text (the suffix)
+        suffix = hashed_text[5:]
+
+        # Make a request to the HIBP API to check if the text has been breached
+        response = requests.get(f'https://api.pwnedpasswords.com/range/{prefix}')
+
+        # Check if the suffix of the hashed text appears in the response
+        if suffix in response.text:
+            status_label.config(text=f"The entered password '{entered_text}' has been found in a breach. Please consider using a stronger password and changing any accounts that use this password.", foreground="red")
+        else:
+            status_label.config(text=f"The entered password '{entered_text}' is safe.", foreground="green")
+
+    confirm_button = Button(text_entry_tab, text="Confirm", command=check_and_display_text_entry_status)
+    confirm_button.grid(row=2, column=1, pady=10, padx=(10, 0))
+    
+    # Third tab - Useful Hints and Tips
+    hints_tab = ttk.Frame(notebook)
+    notebook.add(hints_tab, text='Useful Hints and Tips')
+
+    # Password Security Box
+    password_security_box = Label(hints_tab, text="Password Security Tips", font=('Arial', 14, 'bold'))
+    password_security_box.grid(row=0, column=0, pady=(10, 5), padx=(10, 5), sticky="nw")
+
+    # Add a Scrollbar for the password tips
+    password_scrollbar = Scrollbar(hints_tab, orient=VERTICAL)
+    password_scrollbar.grid(row=1, column=1, pady=(5, 10), sticky="ns")
+
+    # Add password security tips to a Text widget
+    password_tips_text = Text(hints_tab, wrap='word', width=50, height=10, yscrollcommand=password_scrollbar.set)
+    password_tips_text.grid(row=1, column=0, pady=(5, 10), padx=(10, 5), sticky="sw")
+
+    # Configure the scrollbar to work with the Text widget
+    password_scrollbar.config(command=password_tips_text.yview)
+
+    password_tips = (
+        "1. Create Strong and Long Passwords:\n"
+        "   - Your passwords should be at least 12 characters long. Longer passwords provide better protection for your accounts.\n\n"
+
+        "2. Use Memorable Passphrases:\n"
+        "   - Consider using passphrases - sequences of words or a mix of words and characters. Passphrases are easier to remember and can be more secure than simple passwords.\n\n"
+
+        "3. Avoid Easy-to-Guess Choices:\n"
+        "   - Stay away from common passwords like 'password123' or easily guessable words. Opt for more complex combinations to make it harder for others to access your accounts.\n\n"
+
+        "4. Add Extra Security with Multi-Factor Authentication (MFA):\n"
+        "   - Enable multi-factor authentication whenever possible. This adds an extra layer of security by requiring a second form of verification beyond your password.\n\n"
+
+        "5. Change Your Passwords Regularly:\n"
+        "   - Update your passwords periodically. Changing them regularly helps protect your accounts, especially if there's a chance they could be compromised.\n\n"
+
+        "6. Stay Informed About Security:\n"
+        "   - Learn about creating strong passwords and how to recognize phishing attempts. Being informed helps you better safeguard your accounts from potential threats.\n\n"
+
+        "7. Trustworthy Password Handling:\n"
+        "   - Use platforms that securely store and handle your passwords. Avoid services that store passwords in plain text. Your passwords should always be treated with care."
+)
+
+    # Insert the password tips into the Text widget
+    password_tips_text.insert("1.0", password_tips)
+
+    # Useful Links Box
+    useful_links_box = Label(hints_tab, text="Placeholder: Useful Links", font=('Arial', 14, 'bold'))
+    useful_links_box.grid(row=0, column=1, pady=(10, 5), padx=(5, 10), sticky="ne")
+
+    # RSS Feed Box with scrolling window
+    rss_feed_label = Label(hints_tab, text="Cybersecurity News:", font=('Arial', 14, 'bold'))
+    rss_feed_label.grid(row=2, column=0, pady=(5, 0), padx=(10, 5), sticky="sw")
+
+    rss_feed_text = Text(hints_tab, wrap='word', width=70, height=15)
+    rss_feed_text.grid(row=3, column=0, pady=(0, 10), padx=(10, 5), columnspan=2, sticky="nw")
+
+    # Function to fetch and display cybersecurity news
+    def update_rss_feed():
+        rss_url = "https://www.ncsc.gov.uk/api/1/services/v1/news-rss-feed.xml"
+        try:
+            feed = feedparser.parse(rss_url)
+            entries = feed.entries[:5]  # Display the latest 5 news items
+
+            for entry in entries:
+                # Add header with link as a hyperlink
+                rss_feed_text.tag_configure('bold', font=('Arial', 12, 'bold'))
+                rss_feed_text.tag_configure('hyperlink', foreground='blue', underline=True)
+                rss_feed_text.insert('end', f"{entry.title}\n", 'bold')
+
+                link_start = rss_feed_text.index('end-1c')  # Get the index of the last inserted character
+                rss_feed_text.insert('end', f"{entry.link}\n\n", 'hyperlink')
+                link_end = rss_feed_text.index('end-1c')  # Get the index of the last inserted character
+
+                rss_feed_text.tag_add('hyperlink', link_start, link_end)
+                rss_feed_text.tag_bind('hyperlink', '<Button-1>', lambda e, link=entry.link: open_link(link))
+
+            rss_feed_text.config(state='normal')  # Make the Text widget editable
+        except Exception as e:
+            rss_feed_text.delete(1.0, 'end')
+            rss_feed_text.insert('insert', f"Error fetching RSS feed: {str(e)}")
+
+    # Function to open the hyperlink
+    def open_link(url):
+        webbrowser.open(url)
+
+    # Update the RSS feed on startup
+    update_rss_feed()
+
+    # Add a button to manually update the RSS feed
+    update_rss_button = Button(hints_tab, text="Update RSS Feed", command=update_rss_feed)
+    update_rss_button.grid(row=3, column=1, pady=(0, 10), padx=(5, 10), sticky="se")
+
+    # Test Box
+    test_box = Label(hints_tab, text="Placeholder: Test", font=('Arial', 14, 'bold'))
+    test_box.grid(row=4, column=0, pady=(5, 10), padx=(10, 5), sticky="sw")
+
+    # Update the window
+    window.update()
+
+    # Update the window size after adding widgets
+    window.update_idletasks()
+    window.geometry(f"{window.winfo_reqwidth()}x{window.winfo_reqheight()}")
+
+# Check if a master password is already set
 check = cursor.execute("SELECT * FROM masterpassword")
 if cursor.fetchall():
     login_screen()
 else:
-    initial_use()
+    initial_use() 
 
-# Start the main loop
 window.mainloop()
