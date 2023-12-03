@@ -19,7 +19,7 @@ import ctypes
 window = Tk()
 window.title("Password Manager")
 
-# Apply the Azure theme
+# Apply the Arc theme
 style = ThemedStyle(window)
 style.set_theme("arc")
 
@@ -27,7 +27,7 @@ style.set_theme("arc")
 txtBox = None
 canvas = None
 strength_var = None
-progress = None  # Added progress as a global variable
+progress = None  
 
 # Database initialization
 with sqlite3.connect("Password_Manager.db") as db:
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS passwordvault(
     password TEXT NOT NULL);
 """)
 
-# Function to create a pop-up dialog
+
 def popUp(title, text, initial_text=""):
     answer = simpledialog.askstring(title, text, initialvalue=initial_text)
     return answer
@@ -78,10 +78,8 @@ def check_password_strength(password):
         return "Medium"
     else:
         return "Weak"
-
-# Function to update password strength
+    
 def update_strength(parent_frame, strength_var, password, progress):
-    # Recreate widgets if they are None
     if strength_var is None:
         strength_var = StringVar()
         strength_var.set("Password Strength: ")
@@ -91,7 +89,6 @@ def update_strength(parent_frame, strength_var, password, progress):
     if progress is None:
         progress = {"value": 0, "bar": parent_frame.create_rectangle(0, 0, 0, 10, fill="green")}
 
-    # Rest of the function remains the same
     strength = check_password_strength(password)
     strength_var.set("Password Strength: " + strength)
 
@@ -108,18 +105,15 @@ def update_strength(parent_frame, strength_var, password, progress):
 
 # Function to save password to the database
 def save_password():
-    global txtBox, txtBox1, label3, canvas  # Add canvas as a global variable
+    global txtBox, txtBox1, label3, canvas  
 
     # Get the entered passwords
     password1 = txtBox.get()
     password2 = txtBox1.get()
 
-    # Check if passwords match
+    
     if password1 == password2:
-        # Check password strength
         strength = check_password_strength(password1)
-
-        # Check if password meets criteria
         if strength != "Weak":
             hashed_password = hashlib.sha256(password1.encode("utf-8")).hexdigest()
 
@@ -127,8 +121,8 @@ def save_password():
                                  VALUES(?) """
             cursor.execute(insert_password, [(hashed_password)])
             db.commit()
-
             password_vault()
+            
         else:
             # Display each requirement on a new line
             error_message = "Password must meet the following criteria:\n" \
@@ -141,13 +135,12 @@ def save_password():
         label3.config(text="Passwords do not match")
 
 
-# Function to check the master password
+
 def get_master_password():
     check_hashed_password = hashlib.sha256(txtBox.get().encode("utf-8")).hexdigest()
     cursor.execute("SELECT * FROM masterpassword WHERE id = 1 AND password = ?", [check_hashed_password])
     return cursor.fetchall()
 
-# Function to check the password entered by the user
 def check_password():
     match = get_master_password()
     if match:
@@ -156,7 +149,6 @@ def check_password():
         txtBox.delete(0, "end")
         label5.config(text="Wrong Password")
 
-# Function for the initial setup
 def initial_use():
     global txtBox, txtBox1, label3, canvas, strength_var
     window.geometry("600x300")  
@@ -183,11 +175,9 @@ def initial_use():
     strength_label = Label(window, textvariable=strength_var)
     strength_label.pack()
 
-    # Create a custom progress bar using a rectangle on the canvas
+   
     canvas = Canvas(window, width=200, height=20)
     canvas.pack()
-
-    # Create a custom progress bar using a rectangle on the canvas
     progress = {"value": 0, "bar": canvas.create_rectangle(0, 0, 0, 20, fill="green")}
 
     # Bind the update_strength function to the password entry & repeat entry
@@ -197,7 +187,6 @@ def initial_use():
     button = Button(window, text="Save", command=save_password)
     button.pack()
 
-# Function for the login screen
 def login_screen():
     global txtBox, label5
     window.geometry("600x200")
@@ -215,7 +204,6 @@ def login_screen():
     button = Button(window, text="Confirm", command=check_password)
     button.pack()
 
-# Function for the password vault
 def password_vault():
     for widget in window.winfo_children():
         widget.destroy()
@@ -277,7 +265,6 @@ def password_vault():
     label7 = Label(password_tab, text="Password Vault", anchor='center', font=('Arial', 16))
     label7.grid(row=0, column=0, columnspan=7, pady=10)
 
-    # Headings for each column
     Label(password_tab, text="Website", font=('Arial', 12, "bold")).grid(row=2, column=0, pady=5, padx=45)
     Label(password_tab, text="User Name", font=('Arial', 12, "bold")).grid(row=2, column=1, pady=5, padx=45)
     Label(password_tab, text="Password", font=('Arial', 12, "bold")).grid(row=2, column=2, pady=5, padx=45)
@@ -285,7 +272,6 @@ def password_vault():
     Label(password_tab, text="Progress", font=('Arial', 12, "bold")).grid(row=2, column=4, pady=5, padx=45)
     Label(password_tab, text="Actions", font=('Arial', 12, "bold")).grid(row=2, column=5, pady=5, padx=45)
 
-    # Display entries in columns
     cursor.execute("SELECT * FROM passwordvault")
     array = cursor.fetchall()
 
@@ -296,16 +282,13 @@ def password_vault():
             password_label = Label(password_tab, text=row[3], font=('Arial', 12, "bold"))
             password_label.grid(row=row_index + 3, column=2, pady=10, padx=45)
 
-            # Display password strength for each password
             strength_var = StringVar()
             strength_var.set("Password Strength: " + check_password_strength(row[3]))
             Label(password_tab, textvariable=strength_var, font=('Arial', 12, "bold")).grid(row=row_index + 3, column=3, pady=10, padx=45)
 
-            # Create a new canvas for each entry
             progress_canvas = Canvas(password_tab, width=70, height=10)
             progress_canvas.grid(row=row_index + 3, column=4, pady=5, padx=5)
 
-            # Create a custom progress bar using a rectangle on the canvas
             progress = {"value": 0, "bar": progress_canvas.create_rectangle(0, 0, 0, 10, fill="green")}
             password_strength = check_password_strength(row[3])
 
@@ -330,24 +313,24 @@ def password_vault():
             btn_edit = Button(password_tab, text="Edit", command=lambda r=row[0]: edit_entry(r))
             btn_edit.grid(row=row_index + 3, column=6, pady=10, padx=5)
 
-    # Second tab - Text Entry
+    # Second tab Section
     text_entry_tab = ttk.Frame(notebook)
     notebook.add(text_entry_tab, text="Check your Passwords")
 
-    # Add message label
+    
     message_label = Label(text_entry_tab, text="Check if your password has been detected in a breach", font=("Arial", 14, "bold"))
     message_label.grid(row=0, column=0, columnspan=2, pady=(10, 5), padx=(10, 0))
 
-    # Add sub-heading label
+    
     sub_heading_label = Label(text_entry_tab, text="This feature is powered by the 'Have I Been Pwned' free API", font=("Arial", 10))
     sub_heading_label.grid(row=1, column=0, columnspan=2, pady=(0, 10), padx=(10, 0))
 
-    # Add text entry box, label, and confirm button
+    
     entry_text = Entry(text_entry_tab, width=30)
     entry_text.grid(row=2, column=0, pady=10, padx=(10, 0))
 
-    # Create a label for breach information or safety status
-    status_label = Label(text_entry_tab, text="", foreground="red")  # You can change the foreground color
+    
+    status_label = Label(text_entry_tab, text="", foreground="red"
     status_label.grid(row=3, column=0, pady=5, padx=(10, 0), columnspan=2)
 
     def check_and_display_text_entry_status():
@@ -374,23 +357,22 @@ def password_vault():
     confirm_button = Button(text_entry_tab, text="Confirm", command=check_and_display_text_entry_status)
     confirm_button.grid(row=2, column=1, pady=10, padx=(10, 0))
     
-    # Third tab - Useful Hints and Tips
+
+    
+    # Third tab section
     hints_tab = ttk.Frame(notebook)
     notebook.add(hints_tab, text='Useful Hints and Tips')
-
-    # Password Security Box
+    #Security Tips section
     password_security_box = Label(hints_tab, text="Password Security Tips", font=("Arial", 14, "bold"))
     password_security_box.grid(row=0, column=0, pady=(10, 5), padx=(10, 5), sticky="nw")
 
-    # Add a Scrollbar for the password tips
+  
     password_scrollbar = Scrollbar(hints_tab, orient=VERTICAL)
     password_scrollbar.grid(row=1, column=0, pady=(5, 10), padx=(575, 5), sticky="ns")
-
-    # Add password security tips to a Text widget
+   
     password_tips_text = Text(hints_tab, wrap="word", width=70, height=30, yscrollcommand=password_scrollbar.set)
     password_tips_text.grid(row=1, column=0, pady=(5, 10), padx=(10, 5), sticky="sw")
-
-    # Configure the scrollbar to work with the Text widget
+   
     password_scrollbar.config(command=password_tips_text.yview)
     
     password_tips = (
@@ -422,79 +404,76 @@ def password_vault():
     for tip in password_tips.split("\n\n\n"):
         lines = tip.split("\n", 1)
         if len(lines) > 1:
-            # First line in bold
             password_tips_text.insert(current_index, lines[0] + "\n", "bold")
-            # Remaining lines in normal font
             password_tips_text.insert(END, lines[1] + "\n")
-            # Update the current index
             current_index = password_tips_text.index(END)
 
-    # Configure the 'bold' tag for bold formatting
+    
     password_tips_text.tag_configure("bold", font=("Arial", 12, "bold"))
  
 
     # Insert the password tips into the Text widget
     #password_tips_text.insert("1.0", password_tips)
 
-    # Useful Links Box
+    # Useful links Section
     useful_links_box = Label(hints_tab, text="Placeholder: Useful Links", font=("Arial", 14, "bold"))
     useful_links_box.grid(row=0, column=3, pady=(10, 5), padx=(5, 10), sticky="ne")
 
-    # RSS Feed Box with scrolling window
+    #Cyber New Section
     rss_feed_label = Label(hints_tab, text="Cybersecurity News:", font=("Arial", 14, "bold"))
     rss_feed_label.grid(row=2, column=0, pady=(5, 0), padx=(10, 5), sticky="sw")
 
     rss_feed_text = Text(hints_tab, wrap="word", width=70, height=30)
     rss_feed_text.grid(row=3, column=0, pady=(0, 10), padx=(10, 5), columnspan=2, sticky="nw")
 
-    # Function to fetch and display cybersecurity news
+    
     def update_rss_feed():
         rss_url = "https://www.ncsc.gov.uk/api/1/services/v1/news-rss-feed.xml"
         try:
             feed = feedparser.parse(rss_url)
-            entries = feed.entries[:10]  # Display the latest 10 news items
+            entries = feed.entries[:10]  
 
             for entry in entries:
-                # Add header with link as a hyperlink
                 rss_feed_text.tag_configure("bold", font=("Arial", 12, "bold"))
                 rss_feed_text.tag_configure("hyperlink", foreground="blue", underline=True)
                 rss_feed_text.insert("end", f"{entry.title}\n", "bold")
 
-                link_start = rss_feed_text.index("end-1c")  # Get the index of the last inserted character
+                link_start = rss_feed_text.index("end-1c")  
                 rss_feed_text.insert("end", f"{entry.link}\n\n", "hyperlink")
-                link_end = rss_feed_text.index('end-1c')  # Get the index of the last inserted character
+                link_end = rss_feed_text.index('end-1c')  
 
                 rss_feed_text.tag_add("hyperlink", link_start, link_end)
                 rss_feed_text.tag_bind("hyperlink", "<Button-1>", lambda e, link=entry.link: open_link(link))
 
-            rss_feed_text.config(state="normal")  # Make the Text widget editable
+            rss_feed_text.config(state="normal")  
         except Exception as e:
             rss_feed_text.delete(1.0, "end")
             rss_feed_text.insert("insert", f"Error fetching RSS feed: {str(e)}")
 
-    # Function to open the hyperlink
+    
     def open_link(url):
         webbrowser.open(url)
-
-    # Update the RSS feed on startup
+        
     update_rss_feed()
 
-    # Add a button to manually update the RSS feed
+    
     update_rss_button = Button(hints_tab, text="Update RSS Feed", command=update_rss_feed)
     update_rss_button.grid(row=3, column=1, pady=(0, 10), padx=(5, 10), sticky="se")
+    
 
-    # Fourth tab - Password Generator
+
+   #4th Tab Section
     password_generator_tab = ttk.Frame(notebook)
     notebook.add(password_generator_tab, text='Password Generator')
 
-    # Add label and entry for password length
+    
     length_label = Label(password_generator_tab, text="Enter Password Length:")
     length_label.grid(row=0, column=0, pady=(10, 5), padx=(10, 0), sticky="w")
 
     length_entry = Entry(password_generator_tab, width=5)
     length_entry.grid(row=0, column=1, pady=(10, 5), padx=(0, 10), sticky="w")
 
-    # Function to generate and display a secure password
+    
     def generate_password():
         password_length = length_entry.get()
 
@@ -503,13 +482,8 @@ def password_vault():
         response = requests.get(api_url, headers={'X-Api-Key': 'bI7ka/glDE5e7NW3OdFmww==TRHqpqBzTURsvLKc'})
 
         if response.status_code == requests.codes.ok:
-            # Extract the password from the API response
             generated_password = response.json().get('random_password', '')
-        
-            # Update the label with just the password
             password_result.config(text=generated_password)
-
-            # Enable the copy button
             copy_button.config(state="normal")
         else:
             password_result.config(text=f"Error: {response.status_code} {response.text}")
@@ -517,39 +491,29 @@ def password_vault():
     def copy_to_clipboard():
         generated_password = password_result.cget("text")
         if generated_password:
-            # Copy the password to the clipboard
             pyperclip.copy(generated_password)
-
-            # Clear the clipboard after 15 seconds
             clear_clipboard_thread = threading.Timer(15, clear_clipboard_windows)
             clear_clipboard_thread.start()
 
-    # Function to clear the clipboard on Windows
     def clear_clipboard_windows():
-        # Open the clipboard
+       
         ctypes.windll.user32.OpenClipboard(0)
-
-        # Clear the clipboard
         ctypes.windll.user32.EmptyClipboard()
-
-        # Close the clipboard
         ctypes.windll.user32.CloseClipboard()
 
-    # Add button to trigger password generation
+    
     generate_button = Button(password_generator_tab, text="Generate Password", command=generate_password)
     generate_button.grid(row=1, column=0, pady=5, padx=(10, 0), sticky="w")
 
-    # Add label to display generated password
+    
     password_result = Label(password_generator_tab, text="")
     password_result.grid(row=1, column=1, pady=5, padx=(0, 10), sticky="w")
 
-    # Add button to copy password to clipboard
+    
     copy_button = Button(password_generator_tab, text="Copy to Clipboard", command=copy_to_clipboard, state="disabled")
     copy_button.grid(row=2, column=0, pady=5, padx=(10, 0), sticky="w", columnspan=2)
 
-    
 
-    #Update the window
     window.update()
     
     #Set the window size to fit the content
