@@ -14,6 +14,28 @@ import pyperclip
 import time
 import threading
 import ctypes
+import pyodbc
+from cryptography.fernet import Fernet
+
+
+def load_key():
+    with open("secret.key", "rb") as key_file:
+        return key_file.read()
+
+
+def decrypt_password(encrypted_password, key):
+    fernet = Fernet(key)
+    return fernet.decrypt(encrypted_password).decode()
+
+
+key = load_key()
+
+
+with open("encrypted_password.txt", "rb") as encrypted_file:
+    encrypted_password = encrypted_file.read()
+
+
+decrypted_password = decrypt_password(encrypted_password, key)
 
 # Create the main window screen
 window = Tk()
@@ -29,23 +51,41 @@ canvas = None
 strength_var = None
 progress = None  
 
-# Database initialization
-with sqlite3.connect("Password_Manager.db") as db:
+# Azure SQL Database connection parameters
+server = 'final-year-project2.database.windows.net'
+database = 'Password Manager'
+username = 'Password'
+password = decrypted_password 
+driver= '{ODBC Driver 17 for SQL Server}'
+
+# Establish a connection to the Azure SQL database
+with pyodbc.connect('DRIVER='+driver+';SERVER='+server+';PORT=1433;DATABASE='+database+';UID='+username+';PWD='+ password) as db:
     cursor = db.cursor()
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS masterpassword(
-    id INTEGER PRIMARY KEY,
-    password TEXT NOT NULL);
-""")
+    # Create tables (if not exist)
+    cursor.execute("""
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'masterpassword')
+    BEGIN
+        CREATE TABLE masterpassword(
+            id INT PRIMARY KEY IDENTITY(1,1),
+            password NVARCHAR(255) NOT NULL
+        );
+    END
+    """)
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS passwordvault(
-    id INTEGER PRIMARY KEY,
-    website TEXT NOT NULL,
-    username TEXT NOT NULL,
-    password TEXT NOT NULL);
-""")
+    cursor.execute("""
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'passwordvault')
+    BEGIN
+        CREATE TABLE passwordvault(
+            id INT PRIMARY KEY IDENTITY(1,1),
+            website NVARCHAR(255) NOT NULL,
+            username NVARCHAR(255) NOT NULL,
+            password NVARCHAR(255) NOT NULL
+        );
+    END
+    """)
+
+    db.commit()
 
 
 def popUp(title, text, initial_text=""):
@@ -117,9 +157,8 @@ def save_password():
         if strength != "Weak":
             hashed_password = hashlib.sha256(password1.encode("utf-8")).hexdigest()
 
-            insert_password = """INSERT INTO masterpassword(password)
-                                 VALUES(?) """
-            cursor.execute(insert_password, [(hashed_password)])
+            insert_password = """INSERT INTO masterpassword(password) VALUES(?)"""
+            cursor.execute(insert_password, hashed_password)
             db.commit()
             password_vault()
             
@@ -330,7 +369,7 @@ def password_vault():
     entry_text.grid(row=2, column=0, pady=10, padx=(10, 0))
 
     
-    status_label = Label(text_entry_tab, text="", foreground="red"
+    status_label = Label(text_entry_tab, text="", foreground="red")
     status_label.grid(row=3, column=0, pady=5, padx=(10, 0), columnspan=2)
 
     def check_and_display_text_entry_status():
