@@ -1,21 +1,24 @@
-from tkinter import *
-from tkinter.ttk import Progressbar, Style, Treeview, Scrollbar, Button
-import sqlite3
+## Nathan Burke M2082128 - Final Year Project
+## Python Password Manager
+
+import ctypes
 import hashlib
-from tkinter import simpledialog
-from tkinter import ttk, messagebox, StringVar, scrolledtext, Text
-import webbrowser
+import pyodbc
+import pyperclip
 import requests
+import sqlite3
+import threading
+import time
+import webbrowser
+from cryptography.fernet import Fernet
 import feedparser
+
+# tkinter imports
+from tkinter import  Tk, ttk,  Entry, Label, Button, Canvas, messagebox, simpledialog, StringVar, Text
+from tkinter import *
+from tkinter.ttk import Progressbar, Style, Treeview, Scrollbar
 from ttkthemes import ThemedStyle
 from tkinterhtml import TkinterHtml
-import requests
-import pyperclip
-import time
-import threading
-import ctypes
-import pyodbc
-from cryptography.fernet import Fernet
 
 
 def load_key():
@@ -37,6 +40,8 @@ with open("encrypted_password.txt", "rb") as encrypted_file:
 
 decrypted_password = decrypt_password(encrypted_password, key)
 
+#print(decrypted_password) prints the password in plain text !!!major issue!!!
+
 # Create the main window screen
 window = Tk()
 window.title("Password Manager")
@@ -47,9 +52,11 @@ style.set_theme("arc")
 
 # Global variables
 txtBox = None
+txtBox_username = None
 canvas = None
 strength_var = None
 progress = None  
+label5 = None
 
 # Azure SQL Database connection parameters
 server = 'final-year-project2.database.windows.net'
@@ -58,21 +65,24 @@ username = 'Password'
 password = decrypted_password 
 driver= '{ODBC Driver 17 for SQL Server}'
 
-# Establish a connection to the Azure SQL database
+# Establish a connection to the Azure SQL database & making tables
 with pyodbc.connect('DRIVER='+driver+';SERVER='+server+';PORT=1433;DATABASE='+database+';UID='+username+';PWD='+ password) as db:
     cursor = db.cursor()
 
-    # Create tables (if not exist)
+    
+   #cursor.execute("DROP TABLE IF EXISTS users")
     cursor.execute("""
-    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'masterpassword')
+    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'users')
     BEGIN
-        CREATE TABLE masterpassword(
+        CREATE TABLE users(
             id INT PRIMARY KEY IDENTITY(1,1),
-            password NVARCHAR(255) NOT NULL
+            username NVARCHAR(255) UNIQUE NOT NULL,
+            master_password NVARCHAR(255) NOT NULL
         );
     END
     """)
 
+    #cursor.execute("DROP TABLE IF EXISTS passwordvault")
     cursor.execute("""
     IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'passwordvault')
     BEGIN
@@ -80,17 +90,126 @@ with pyodbc.connect('DRIVER='+driver+';SERVER='+server+';PORT=1433;DATABASE='+da
             id INT PRIMARY KEY IDENTITY(1,1),
             website NVARCHAR(255) NOT NULL,
             username NVARCHAR(255) NOT NULL,
-            password NVARCHAR(255) NOT NULL
+            password NVARCHAR(255) NOT NULL,
+            user_id INT,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+       
         );
     END
     """)
 
-    db.commit()
+db.commit()
 
 
+#popup box for add entry function
 def popUp(title, text, initial_text=""):
     answer = simpledialog.askstring(title, text, initialvalue=initial_text)
     return answer
+
+def save_new_user(username, password1, password2):
+   if password1 == password2:
+        if check_password_strength(password1) != "Weak":
+            hashed_password = hash_password(password1)
+            try:
+                cursor.execute("INSERT INTO users (username, master_password) VALUES (?, ?)", (username, hashed_password))
+                db.commit()
+                messagebox.showinfo("Registration Successful", "User registered successfully.")
+                switch_to_login()
+            except pyodbc.IntegrityError:
+                messagebox.showerror("Registration Failed", "Username already exists.")
+        else:
+            if is_password_common(password1):
+                messagebox.showerror("Weak Password", "Password is part of a common dictionary")  
+            else:
+                messagebox.showerror("Weak Password", "Password is too weak. Please choose a stronger password.\n\n" 
+                             "Password must meet the following criteria:\n" \
+                             "- Be at least 7 characters long\n" \
+                             "- Contain at least 1 upper case character\n" \
+                             "- Contain at least 1 symbol\n" \
+                             "- Password must not be a commonly used word")
+   else:
+       messagebox.showerror("Password Mismatch", "Passwords do not match.")
+       
+        
+def clear_window():
+    for widget in window.winfo_children():
+        widget.destroy()
+
+def switch_to_login():
+    clear_window()
+    login_screen()
+
+def switch_to_register():
+    clear_window()
+    register_user()
+    
+def logout():
+    global current_user_id
+    current_user_id = None  # Clearing the current user session
+    switch_to_login()  # Switch back to the login screen
+
+def register_user():
+    global txtBox, txtBox_username, strength_var, canvas, progress
+    clear_window()
+    
+    Label(window, text="Register New User", font=("Arial", 14)).pack(pady=10)
+
+    Label(window, text="Username").pack()
+    txtBox_username = Entry(window, width=30)
+    txtBox_username.pack()
+
+    Label(window, text="Enter Password").pack()
+    txtBox = Entry(window, width=30, show="*")
+    txtBox.pack()
+
+    Label(window, text="Re-enter Password").pack()
+    txtBox1 = Entry(window, width=30, show="*")
+    txtBox1.pack()
+    
+    # Password strength indicator
+    strength_var = StringVar()
+    strength_var.set("Password Strength: ")
+    strength_label = Label(window, textvariable=strength_var)
+    strength_label.pack()
+
+    canvas = Canvas(window, width=200, height=20)
+    canvas.pack()
+    progress = {"value": 0, "bar": canvas.create_rectangle(0, 0, 0, 10, fill="green")}
+
+ 
+    txtBox.bind('<KeyRelease>', lambda event: update_strength(canvas, strength_var, txtBox.get(), progress))
+
+    Button(window, text="Register", command=lambda: save_new_user(txtBox_username.get(), txtBox.get(), txtBox1.get())).pack(pady=5)
+
+    Label(window, text="Already have an account?").pack()
+    Button(window, text="Login", command=switch_to_login).pack()
+    
+    
+def login_screen():
+    global txtBox, txtBox_username, label5
+    clear_window()
+    
+    Label(window, text="Login", font=("Arial", 14)).pack(pady=10)
+
+    Label(window, text="Username").pack()
+    txtBox_username = Entry(window, width=30)
+    txtBox_username.pack()
+
+    Label(window, text="Enter your master password").pack()
+    txtBox = Entry(window, width=30, show="*")
+    txtBox.pack()
+
+    Button(window, text="Confirm", command=check_password).pack(pady=20)
+
+    Label(window, text="Don't have an account yet?").pack()
+    Button(window, text="Register", command=switch_to_register).pack()
+    
+    label5 = Label(window)  
+    label5.pack()
+    
+def hash_password(password):
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
 
 def is_password_common(password):
     # Hash the password using SHA-1
@@ -144,34 +263,48 @@ def update_strength(parent_frame, strength_var, password, progress):
     parent_frame.coords(progress["bar"], 0, 0, progress_length, 10)
 
 # Function to save password to the database
-def save_password():
-    global txtBox, txtBox1, label3, canvas  
-
-    # Get the entered passwords
-    password1 = txtBox.get()
-    password2 = txtBox1.get()
-
-    
-    if password1 == password2:
-        strength = check_password_strength(password1)
-        if strength != "Weak":
-            hashed_password = hashlib.sha256(password1.encode("utf-8")).hexdigest()
-
-            insert_password = """INSERT INTO masterpassword(password) VALUES(?)"""
-            cursor.execute(insert_password, hashed_password)
-            db.commit()
-            password_vault()
-            
-        else:
-            # Display each requirement on a new line
-            error_message = "Password must meet the following criteria:\n" \
-                             "- Be at least 7 characters long\n" \
-                             "- Contain at least 1 upper case character\n" \
-                             "- Contain at least 1 symbol\n" \
-                             "- Password must not be a commonly used word"
-            label3.config(text=error_message)
-    else:
-        label3.config(text="Passwords do not match")
+#def save_password():
+#    global txtBox, txtBox1, label3, canvas  
+#
+#    # Get the entered passwords
+#    password1 = txtBox.get()
+#    password2 = txtBox1.get()
+#
+#    
+#    if password1 == password2:
+#        strength = check_password_strength(password1)
+#        if strength != "Weak":
+#            hashed_password = hashlib.sha256(password1.encode("utf-8")).hexdigest()
+#
+#            insert_password = """INSERT INTO masterpassword(password) VALUES(?)"""
+#            cursor.execute(insert_password, hashed_password)
+#            db.commit()
+#            password_vault()
+#            
+#        else:
+#            # Display each requirement on a new line
+#            error_message = "Password must meet the following criteria:\n" \
+#                             "- Be at least 7 characters long\n" \
+#                             "- Contain at least 1 upper case character\n" \
+#                             "- Contain at least 1 symbol\n" \
+#                             "- Password must not be a commonly used word"
+#            label3.config(text=error_message)
+#    else:
+#        label3.config(text="Passwords do not match")
+        
+def check_passwords_on_login():
+    cursor.execute("SELECT password FROM passwordvault WHERE user_id = ?", (current_user_id,))
+    passwords = cursor.fetchall()
+    breached_passwords = []
+    for password in passwords:
+        hashed_password = hashlib.sha1(password[0].encode()).hexdigest().upper()
+        prefix = hashed_password[:5]
+        suffix = hashed_password[5:]
+        response = requests.get(f'https://api.pwnedpasswords.com/range/{prefix}')
+        if suffix in response.text:
+            breached_passwords.append(password[0])
+    if breached_passwords:
+        messagebox.showwarning("Password Breach Alert", "Some of your passwords are breached!")
 
 
 
@@ -181,72 +314,66 @@ def get_master_password():
     return cursor.fetchall()
 
 def check_password():
-    match = get_master_password()
-    if match:
+    global txtBox_username, label5
+    username = txtBox_username.get()
+    entered_password = txtBox.get()
+    hashed_password = hash_password(entered_password)
+    cursor.execute("SELECT id FROM users WHERE username = ? AND master_password = ?", (username, hashed_password))
+    user_record = cursor.fetchone()
+    if user_record:
+        global current_user_id
+        current_user_id = user_record[0]
         password_vault()
+        check_passwords_on_login()
     else:
         txtBox.delete(0, "end")
-        label5.config(text="Wrong Password")
+        label5.config(text="Wrong Username or Password")
 
-def initial_use():
-    global txtBox, txtBox1, label3, canvas, strength_var
-    window.geometry("600x300")  
-
-    label = Label(window, text="Create Master Password", anchor=CENTER)
-    label.pack()
-
-    txtBox = Entry(window, width=30, show="*")
-    txtBox.pack()
-    txtBox.focus()
-
-    label2 = Label(window, text="Re-enter Password")
-    label2.pack()
-
-    txtBox1 = Entry(window, width=30, show="*")
-    txtBox1.pack()
-
-    label3 = Label(window)
-    label3.pack()
-
+#def initial_use():
+#    global txtBox, txtBox1, label3, canvas, strength_var
+#    window.geometry("600x300")  
+#
+#    label = Label(window, text="Create Master Password", anchor=CENTER)
+#    label.pack()
+#
+#    txtBox = Entry(window, width=30, show="*")
+#    txtBox.pack()
+#    txtBox.focus()
+#
+#    label2 = Label(window, text="Re-enter Password")
+#    label2.pack()
+#
+#    txtBox1 = Entry(window, width=30, show="*")
+#    txtBox1.pack()
+#
+#    label3 = Label(window)
+#    label3.pack()
+#
     # Progress bar for password strength
-    strength_var = StringVar()
-    strength_var.set("Password Strength: ")
-    strength_label = Label(window, textvariable=strength_var)
-    strength_label.pack()
+#    strength_var = StringVar()
+#    strength_var.set("Password Strength: ")
+#    strength_label = Label(window, textvariable=strength_var)
+#    strength_label.pack()
+#
+#  
+#    canvas = Canvas(window, width=200, height=20)
+#    canvas.pack()
+#    progress = {"value": 0, "bar": canvas.create_rectangle(0, 0, 0, 20, fill="green")}
+#
+#  
+#    txtBox.bind('<KeyRelease>', lambda event, progress=progress: update_strength(canvas, strength_var, txtBox.get(), progress))
+#    txtBox1.bind('<KeyRelease>', lambda event, progress=progress: update_strength(canvas, strength_var, txtBox1.get(), progress))
+#
+#    button = Button(window, text="Save", command=save_password)
+#    button.pack()
 
-   
-    canvas = Canvas(window, width=200, height=20)
-    canvas.pack()
-    progress = {"value": 0, "bar": canvas.create_rectangle(0, 0, 0, 20, fill="green")}
 
-    # Bind the update_strength function to the password entry & repeat entry
-    txtBox.bind('<KeyRelease>', lambda event, progress=progress: update_strength(canvas, strength_var, txtBox.get(), progress))
-    txtBox1.bind('<KeyRelease>', lambda event, progress=progress: update_strength(canvas, strength_var, txtBox1.get(), progress))
-
-    button = Button(window, text="Save", command=save_password)
-    button.pack()
-
-def login_screen():
-    global txtBox, label5
-    window.geometry("600x200")
-    
-    label4 = Label(window, text="Enter your master password", anchor=CENTER)
-    label4.pack()
-
-    txtBox = Entry(window, width=30, show="*")
-    txtBox.pack()
-    txtBox.focus()
-
-    label5 = Label(window)
-    label5.pack()
-
-    button = Button(window, text="Confirm", command=check_password)
-    button.pack()
 
 def password_vault():
     for widget in window.winfo_children():
         widget.destroy()
-
+        
+    
     def add_entry():
         website = popUp("Add Entry", "Enter Website")
         username = popUp("Add Entry", "Enter User Name")
@@ -256,21 +383,21 @@ def password_vault():
             if is_password_common(password):
                 messagebox.showwarning("Password Warning", "The entered password has been found in a breach. Please consider using a stronger password.")
 
-            insert_fields = """INSERT INTO passwordvault(website, username, password) VALUES(?, ?, ?)"""
-            cursor.execute(insert_fields, (website, username, password))
+            insert_fields = """INSERT INTO passwordvault(website, username, password, user_id) VALUES(?, ?, ?, ?)"""
+            cursor.execute(insert_fields, (website, username, password, current_user_id))
             db.commit()
-
             password_vault()
-
-    def remove_entry_confirmation(input):
-        confirm = messagebox.askyesno("Confirmation", "Are you sure you want to delete this entry?")
-        if confirm:
-            remove_entry(input)
+        
 
     def remove_entry(input):
         cursor.execute("DELETE FROM passwordvault WHERE id = ?", (input,))
         db.commit()
         password_vault()
+        
+    def remove_entry_confirmation(input):
+        confirm = messagebox.askyesno("Confirmation", "Are you sure you want to delete this entry?")
+        if confirm:
+            remove_entry(input)
 
     def edit_entry(input):
         # Fetch the existing entry
@@ -303,7 +430,8 @@ def password_vault():
 
     label7 = Label(password_tab, text="Password Vault", anchor='center', font=('Arial', 16))
     label7.grid(row=0, column=0, columnspan=7, pady=10)
-
+    
+ 
     Label(password_tab, text="Website", font=('Arial', 12, "bold")).grid(row=2, column=0, pady=5, padx=45)
     Label(password_tab, text="User Name", font=('Arial', 12, "bold")).grid(row=2, column=1, pady=5, padx=45)
     Label(password_tab, text="Password", font=('Arial', 12, "bold")).grid(row=2, column=2, pady=5, padx=45)
@@ -311,7 +439,8 @@ def password_vault():
     Label(password_tab, text="Progress", font=('Arial', 12, "bold")).grid(row=2, column=4, pady=5, padx=45)
     Label(password_tab, text="Actions", font=('Arial', 12, "bold")).grid(row=2, column=5, pady=5, padx=45)
 
-    cursor.execute("SELECT * FROM passwordvault")
+    #only show logged in users passwords 
+    cursor.execute("SELECT * FROM passwordvault WHERE user_id = ?", (current_user_id,))
     array = cursor.fetchall()
 
     if array:
@@ -351,6 +480,12 @@ def password_vault():
             # Add Edit button for each entry
             btn_edit = Button(password_tab, text="Edit", command=lambda r=row[0]: edit_entry(r))
             btn_edit.grid(row=row_index + 3, column=6, pady=10, padx=5)
+            
+
+    logout_btn = Button(password_tab, text="Logout", command=logout)
+    logout_btn.grid(row=1, column=6, pady=10, padx=10)  # Adjust position as needed
+
+
 
     # Second tab Section
     text_entry_tab = ttk.Frame(notebook)
@@ -372,6 +507,7 @@ def password_vault():
     status_label = Label(text_entry_tab, text="", foreground="red")
     status_label.grid(row=3, column=0, pady=5, padx=(10, 0), columnspan=2)
 
+    #This section of the code uses HIBP API and is not entirely my own code 
     def check_and_display_text_entry_status():
         entered_text = entry_text.get()
 
@@ -563,10 +699,16 @@ def password_vault():
     window.geometry(f"{window.winfo_reqwidth()}x{window.winfo_reqheight()}")
 
 # Check if a master password is already set
-check = cursor.execute("SELECT * FROM masterpassword")
-if cursor.fetchall():
-    login_screen()
-else:
-    initial_use()
+#check = cursor.execute("SELECT * FROM masterpassword")
+#if cursor.fetchall():
+#    login_screen()
+#else:
+#    initial_use()
 
+#window.mainloop()
+
+
+#register_user() # Start with registration screen
+
+login_screen() # Start with login screen
 window.mainloop()
