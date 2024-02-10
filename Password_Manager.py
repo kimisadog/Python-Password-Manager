@@ -12,31 +12,57 @@ import time
 import webbrowser
 from cryptography.fernet import Fernet
 import feedparser
+import bcrypt
 
 # tkinter imports
-from tkinter import  Tk, ttk,  Entry, Label, Button, Canvas, messagebox, simpledialog, StringVar, Text
+from tkinter import  Tk, ttk,  Entry, Label, Button, Canvas, messagebox, simpledialog, StringVar, Text, filedialog, messagebox
 from tkinter import *
 from tkinter.ttk import Progressbar, Style, Treeview, Scrollbar
 from ttkthemes import ThemedStyle
 from tkinterhtml import TkinterHtml
 
 
+# Function to generate a key for the vault
+def generate_vault_key():
+    key = Fernet.generate_key()
+    filename = filedialog.asksaveasfilename(title="Save the Vault Key", filetypes=[("Key Files", "*.key")], defaultextension=".key")
+    if filename:
+        with open(filename, "wb") as key_file:
+            key_file.write(key)
+        messagebox.showinfo("Vault Key Generated", f"Vault key has been saved to {filename}\nPlease store it in a secure location.")
+
+# Function to load the vault key
+def load_vault_key():
+    filename = filedialog.askopenfilename(title="Select Vault Key File", filetypes=[("Key Files", "*.key")])
+    if filename:
+        with open(filename, "rb") as key_file:
+            return key_file.read()
+    else:
+        return None
+    
+def encrypt_vault_password(password):
+    fernet = Fernet(vault_key)
+    # Convert the password to bytes using UTF-8 encoding
+    return fernet.encrypt(password.encode('utf-8'))
+
+def decrypt_vault_password(encrypted_password):
+    fernet = Fernet(vault_key)
+    # Decrypt and convert back to string using UTF-8
+    return fernet.decrypt(encrypted_password).decode('utf-8')
+
+# Function to load a key for the DB
 def load_key():
     with open("secret.key", "rb") as key_file:
         return key_file.read()
-
 
 def decrypt_password(encrypted_password, key):
     fernet = Fernet(key)
     return fernet.decrypt(encrypted_password).decode()
 
-
 key = load_key()
-
 
 with open("encrypted_password.txt", "rb") as encrypted_file:
     encrypted_password = encrypted_file.read()
-
 
 decrypted_password = decrypt_password(encrypted_password, key)
 
@@ -69,49 +95,62 @@ driver= '{ODBC Driver 17 for SQL Server}'
 with pyodbc.connect('DRIVER='+driver+';SERVER='+server+';PORT=1433;DATABASE='+database+';UID='+username+';PWD='+ password) as db:
     cursor = db.cursor()
 
-    
-   #cursor.execute("DROP TABLE IF EXISTS users")
+    # Check and create 'users' table if it does not exist
     cursor.execute("""
-    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'users')
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'users' AND type = 'U')
     BEGIN
         CREATE TABLE users(
             id INT PRIMARY KEY IDENTITY(1,1),
             username NVARCHAR(255) UNIQUE NOT NULL,
-            master_password NVARCHAR(255) NOT NULL
+            master_password NVARCHAR(60) NOT NULL
         );
     END
     """)
 
-    #cursor.execute("DROP TABLE IF EXISTS passwordvault")
+    # Check and create 'passwordvault' table if it does not exist
     cursor.execute("""
-    IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'passwordvault')
+    IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'passwordvault' AND type = 'U')
     BEGIN
         CREATE TABLE passwordvault(
             id INT PRIMARY KEY IDENTITY(1,1),
             website NVARCHAR(255) NOT NULL,
             username NVARCHAR(255) NOT NULL,
-            password NVARCHAR(255) NOT NULL,
+            password VARBINARY(MAX) NOT NULL,
             user_id INT,
             FOREIGN KEY (user_id) REFERENCES users(id)
-       
         );
     END
     """)
 
-db.commit()
+    db.commit()
 
+# Check if the user already has a vault key
+if messagebox.askyesno("Vault Key Check", "Do you already have a vault key file?"):
+    vault_key = load_vault_key()
+    if vault_key is None:
+        messagebox.showerror("No Vault Key", "No vault key file selected. The application will now exit.")
+        sys.exit()
+else:
+    generate_vault_key()
+    vault_key = load_vault_key()
 
 #popup box for add entry function
 def popUp(title, text, initial_text=""):
     answer = simpledialog.askstring(title, text, initialvalue=initial_text)
     return answer
 
+def hash_password(password):
+    salt = bcrypt.gensalt()
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed_password.decode('utf-8')
+
 def save_new_user(username, password1, password2):
-   if password1 == password2:
+    if password1 == password2:
         if check_password_strength(password1) != "Weak":
-            hashed_password = hash_password(password1)
+            hashed_password = bcrypt.hashpw(password1.encode('utf-8'), bcrypt.gensalt())
             try:
-                cursor.execute("INSERT INTO users (username, master_password) VALUES (?, ?)", (username, hashed_password))
+                # Insert the username and hashed password into the database
+                cursor.execute("INSERT INTO users (username, master_password) VALUES (?, ?)", (username, hashed_password.decode('utf-8')))
                 db.commit()
                 messagebox.showinfo("Registration Successful", "User registered successfully.")
                 switch_to_login()
@@ -127,8 +166,8 @@ def save_new_user(username, password1, password2):
                              "- Contain at least 1 upper case character\n" \
                              "- Contain at least 1 symbol\n" \
                              "- Password must not be a commonly used word")
-   else:
-       messagebox.showerror("Password Mismatch", "Passwords do not match.")
+    else:
+        messagebox.showerror("Password Mismatch", "Passwords do not match.")
        
         
 def clear_window():
@@ -207,8 +246,8 @@ def login_screen():
     label5 = Label(window)  
     label5.pack()
     
-def hash_password(password):
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+#def hash_password(password):
+#    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 def is_password_common(password):
@@ -262,49 +301,21 @@ def update_strength(parent_frame, strength_var, password, progress):
     progress_length = 30 if strength == "Weak" else 70 if strength == "Medium" else 200
     parent_frame.coords(progress["bar"], 0, 0, progress_length, 10)
 
-# Function to save password to the database
-#def save_password():
-#    global txtBox, txtBox1, label3, canvas  
-#
-#    # Get the entered passwords
-#    password1 = txtBox.get()
-#    password2 = txtBox1.get()
-#
-#    
-#    if password1 == password2:
-#        strength = check_password_strength(password1)
-#        if strength != "Weak":
-#            hashed_password = hashlib.sha256(password1.encode("utf-8")).hexdigest()
-#
-#            insert_password = """INSERT INTO masterpassword(password) VALUES(?)"""
-#            cursor.execute(insert_password, hashed_password)
-#            db.commit()
-#            password_vault()
-#            
-#        else:
-#            # Display each requirement on a new line
-#            error_message = "Password must meet the following criteria:\n" \
-#                             "- Be at least 7 characters long\n" \
-#                             "- Contain at least 1 upper case character\n" \
-#                             "- Contain at least 1 symbol\n" \
-#                             "- Password must not be a commonly used word"
-#            label3.config(text=error_message)
-#    else:
-#        label3.config(text="Passwords do not match")
         
-def check_passwords_on_login():
-    cursor.execute("SELECT password FROM passwordvault WHERE user_id = ?", (current_user_id,))
-    passwords = cursor.fetchall()
+def check_passwords_on_login(passwords):
     breached_passwords = []
     for password in passwords:
-        hashed_password = hashlib.sha1(password[0].encode()).hexdigest().upper()
+        # Hash the password using SHA-1
+        hashed_password = hashlib.sha1(password.encode()).hexdigest().upper()
         prefix = hashed_password[:5]
         suffix = hashed_password[5:]
         response = requests.get(f'https://api.pwnedpasswords.com/range/{prefix}')
         if suffix in response.text:
-            breached_passwords.append(password[0])
+            breached_passwords.append(password)
+
     if breached_passwords:
-        messagebox.showwarning("Password Breach Alert", "Some of your passwords are breached!")
+        breached_passwords_str = ', '.join(breached_passwords)  # Join passwords with a comma and a space
+        messagebox.showwarning("Password Breach Alert", f"Some of your passwords are breached!\n\nBreached passwords: {breached_passwords_str}")
 
 
 
@@ -317,56 +328,16 @@ def check_password():
     global txtBox_username, label5
     username = txtBox_username.get()
     entered_password = txtBox.get()
-    hashed_password = hash_password(entered_password)
-    cursor.execute("SELECT id FROM users WHERE username = ? AND master_password = ?", (username, hashed_password))
+    cursor.execute("SELECT id, master_password FROM users WHERE username = ?", (username,))
     user_record = cursor.fetchone()
-    if user_record:
+    if user_record and bcrypt.checkpw(entered_password.encode('utf-8'), user_record[1].encode('utf-8')):
         global current_user_id
         current_user_id = user_record[0]
         password_vault()
-        check_passwords_on_login()
+        #check_passwords_on_login()
     else:
         txtBox.delete(0, "end")
         label5.config(text="Wrong Username or Password")
-
-#def initial_use():
-#    global txtBox, txtBox1, label3, canvas, strength_var
-#    window.geometry("600x300")  
-#
-#    label = Label(window, text="Create Master Password", anchor=CENTER)
-#    label.pack()
-#
-#    txtBox = Entry(window, width=30, show="*")
-#    txtBox.pack()
-#    txtBox.focus()
-#
-#    label2 = Label(window, text="Re-enter Password")
-#    label2.pack()
-#
-#    txtBox1 = Entry(window, width=30, show="*")
-#    txtBox1.pack()
-#
-#    label3 = Label(window)
-#    label3.pack()
-#
-    # Progress bar for password strength
-#    strength_var = StringVar()
-#    strength_var.set("Password Strength: ")
-#    strength_label = Label(window, textvariable=strength_var)
-#    strength_label.pack()
-#
-#  
-#    canvas = Canvas(window, width=200, height=20)
-#    canvas.pack()
-#    progress = {"value": 0, "bar": canvas.create_rectangle(0, 0, 0, 20, fill="green")}
-#
-#  
-#    txtBox.bind('<KeyRelease>', lambda event, progress=progress: update_strength(canvas, strength_var, txtBox.get(), progress))
-#    txtBox1.bind('<KeyRelease>', lambda event, progress=progress: update_strength(canvas, strength_var, txtBox1.get(), progress))
-#
-#    button = Button(window, text="Save", command=save_password)
-#    button.pack()
-
 
 
 def password_vault():
@@ -380,11 +351,9 @@ def password_vault():
         password = popUp("Add Entry", "Enter Password")
 
         if website is not None and username is not None and password is not None:
-            if is_password_common(password):
-                messagebox.showwarning("Password Warning", "The entered password has been found in a breach. Please consider using a stronger password.")
-
+            encrypted_password = encrypt_vault_password(password)  # Encrypt the password
             insert_fields = """INSERT INTO passwordvault(website, username, password, user_id) VALUES(?, ?, ?, ?)"""
-            cursor.execute(insert_fields, (website, username, password, current_user_id))
+            cursor.execute(insert_fields, (website, username, encrypted_password, current_user_id))
             db.commit()
             password_vault()
         
@@ -400,17 +369,15 @@ def password_vault():
             remove_entry(input)
 
     def edit_entry(input):
-        # Fetch the existing entry
         cursor.execute("SELECT * FROM passwordvault WHERE id = ?", (input,))
         entry = cursor.fetchone()
 
-        # Ask user for updated data
         updated_website = popUp("Edit Entry", "Enter new website:", entry[1])
         updated_username = popUp("Edit Entry", "Enter new user name:", entry[2])
         updated_password = popUp("Edit Entry", "Enter new password:", entry[3])
+        encrypted_password = encrypt_vault_password(updated_password)  # Encrypt the new password
 
-        # Update the entry in the database
-        cursor.execute("UPDATE passwordvault SET website=?, username=?, password=? WHERE id=?", (updated_website, updated_username, updated_password, input))
+        cursor.execute("UPDATE passwordvault SET website=?, username=?, password=? WHERE id=?", (updated_website, updated_username, encrypted_password, input))
         db.commit()
 
         password_vault()
@@ -443,22 +410,31 @@ def password_vault():
     cursor.execute("SELECT * FROM passwordvault WHERE user_id = ?", (current_user_id,))
     array = cursor.fetchall()
 
+    decrypted_passwords = []
     if array:
         for row_index, row in enumerate(array):
+            decrypted_password = decrypt_vault_password(row[3])
+            decrypted_passwords.append(decrypted_password)
+
+            # Use decrypted_password for further processing
             Label(password_tab, text=row[1], font=('Arial', 12, "bold")).grid(row=row_index + 3, column=0, pady=10, padx=45)
             Label(password_tab, text=row[2], font=('Arial', 12, "bold")).grid(row=row_index + 3, column=1, pady=10, padx=45)
-            password_label = Label(password_tab, text=row[3], font=('Arial', 12, "bold"))
+            password_label = Label(password_tab, text=decrypted_password, font=('Arial', 12, "bold"))
             password_label.grid(row=row_index + 3, column=2, pady=10, padx=45)
 
+            # Check password strength and if it is common
             strength_var = StringVar()
-            strength_var.set("Password Strength: " + check_password_strength(row[3]))
+            strength = check_password_strength(decrypted_password)
+            is_common = is_password_common(decrypted_password)
+            strength_var.set(f"Password Strength: {strength} (Detected in breach?: {'Yes' if is_common else 'No'})")
+            check_passwords_on_login([decrypted_password])  # Pass a list containing the decrypted password
             Label(password_tab, textvariable=strength_var, font=('Arial', 12, "bold")).grid(row=row_index + 3, column=3, pady=10, padx=45)
 
             progress_canvas = Canvas(password_tab, width=70, height=10)
             progress_canvas.grid(row=row_index + 3, column=4, pady=5, padx=5)
 
             progress = {"value": 0, "bar": progress_canvas.create_rectangle(0, 0, 0, 10, fill="green")}
-            password_strength = check_password_strength(row[3])
+            password_strength = strength
 
             if password_strength == "Weak":
                 progress_color = "red"
@@ -585,16 +561,49 @@ def password_vault():
 
     
     password_tips_text.tag_configure("bold", font=("Arial", 12, "bold"))
- 
-
-    # Insert the password tips into the Text widget
-    #password_tips_text.insert("1.0", password_tips)
 
     # Useful links Section
-    useful_links_box = Label(hints_tab, text="Placeholder: Useful Links", font=("Arial", 14, "bold"))
-    useful_links_box.grid(row=0, column=3, pady=(10, 5), padx=(5, 10), sticky="ne")
+    useful_links_box = Label(hints_tab, text="Useful Links", font=("Arial", 14, "bold"))
+    useful_links_box.grid(row=0, column=3, pady=(10, 5), padx=(5, 10), sticky="nw")
 
-    #Cyber New Section
+    useful_links_text = Text(hints_tab, wrap="word", width=70, height=30)
+    useful_links_text.grid(row=1, column=3, pady=(5, 10), padx=(5, 10), sticky="nw")
+
+    useful_links = (
+        "1. StaySafeOnline - https://staysafeonline.org\n\n"
+        "2. LastPass Blog - https://blog.lastpass.com\n\n"
+        "3. How Secure Is My Password? - https://howsecureismypassword.net\n\n"
+        "4. TwoFactorAuth.org - https://twofactorauth.org\n\n"
+        "5. OWASP - https://owasp.org\n\n"
+        "6. Cybrary - https://www.cybrary.it\n\n"
+        "7. Self Surveillance - https://www.eff.org/pages/surveillance-self-defense\n\n"
+        "8. MITRE ATT&CK - https://attack.mitre.org\n\n"
+        "9. Krebs on Security - https://krebsonsecurity.com"
+)
+
+    useful_links_text.config(state="normal")
+    for link in useful_links.split("\n"):
+        if link.strip():
+            lines = link.split(" - ", 1)
+            if len(lines) > 1:
+                useful_links_text.insert("end", lines[0].strip() + "\n", "bold")
+                link_start = useful_links_text.index("end-2c")
+                link_text = lines[1].strip()  # Use the entire remaining part as link text
+                useful_links_text.insert("end", link_text + "\n\n", "hyperlink")
+                link_end = useful_links_text.index('end-1c') + "+4c"
+                useful_links_text.tag_add("hyperlink", link_start, link_end)
+
+    useful_links_text.tag_configure("bold", font=("Arial", 12, "bold"))
+    useful_links_text.tag_configure("hyperlink", foreground="blue", underline=True)
+    useful_links_text.tag_bind("hyperlink", "<Button-1>", lambda e: open_link(useful_links_text.get(useful_links_text.index("current linestart"), useful_links_text.index("current lineend"))))
+
+    useful_links_text.config(state="disabled")
+
+
+    def open_link(url):
+        webbrowser.open(url)
+
+    #Cyber News Section
     rss_feed_label = Label(hints_tab, text="Cybersecurity News:", font=("Arial", 14, "bold"))
     rss_feed_label.grid(row=2, column=0, pady=(5, 0), padx=(10, 5), sticky="sw")
 
@@ -698,17 +707,6 @@ def password_vault():
     window.update_idletasks()
     window.geometry(f"{window.winfo_reqwidth()}x{window.winfo_reqheight()}")
 
-# Check if a master password is already set
-#check = cursor.execute("SELECT * FROM masterpassword")
-#if cursor.fetchall():
-#    login_screen()
-#else:
-#    initial_use()
-
-#window.mainloop()
-
-
-#register_user() # Start with registration screen
 
 login_screen() # Start with login screen
 window.mainloop()
